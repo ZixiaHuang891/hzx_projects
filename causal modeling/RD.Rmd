@@ -1,0 +1,257 @@
+---
+title: "566 final project"
+author: "ZiXia Huang"
+date: "2024-05-22"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r}
+data <- read.csv("D:/Causal modeling/data presentation/data_CHFS2019_V3.csv",header = TRUE)
+data <- data[,-1]
+ # Create the treatment variable
+data$data_win <- ifelse(data$income > 6450, 1, 0)
+  
+  # Tabulate the treatment variable
+table(data$data_win)
+
+hist(data$income)
+```
+
+```{r,warning=FALSE}
+library(ggplot2)
+# Specify the cutoff
+cutoff <- 6450
+
+# Run a logistic regression model with the outcome as the dependent variable and the treatment and running variable as independent variables
+model <- glm(RB ~ data_win + income, data = data, family = binomial())
+summary(model)
+```
+
+
+```{r}
+# Predict the probabilities using the logistic regression model
+data$predicted_prob <- predict(model, type = "response")
+
+# Create a new dataframe for plotting
+data$data_win <- as.factor(data$data_win)
+plot_data <- data
+
+# Plot the observed outcomes and predicted probabilities
+ggplot(plot_data, aes(x = income)) +
+  geom_point(aes(y = RB, color = data_win), alpha = 0.5) +
+   geom_line(aes(y = predicted_prob), color = "red", size = 1)+
+  geom_vline(xintercept = cutoff, linetype = "dashed") +
+  scale_color_manual(values = c("blue", "green"), labels = c("Control", "Treatment")) +
+  labs(x = "income", y = "RB", color = "Group", title = "RDD Plot") +
+  theme_minimal()
+
+
+```
+```{r}
+# full model
+model <- glm(RB ~ data_win +age+ income+household+risk+edu+knowledge+city.level, data = data, family = binomial())
+summary(model)
+```
+```{r}
+# eliminate risk
+model <- glm(RB ~ data_win +age+ income+household+edu+knowledge+city.level, data = data, family = binomial())
+summary(model)
+```
+```{r}
+# eliminate age and city.level
+model <- glm(RB ~ data_win+ income+household+edu+knowledge, data = data, family = binomial())
+summary(model)
+```
+
+```{r}
+# Predict the probabilities using the logistic regression model
+data$predicted_prob <- predict(model, type = "response")
+
+# Create a new dataframe for plotting
+data$data_win <- as.factor(data$data_win)
+plot_data <- data
+
+# Plot the observed outcomes and predicted probabilities
+ggplot(plot_data, aes(x = income)) +
+  geom_point(aes(y = RB, color = data_win), alpha = 0.5) +
+   geom_point(aes(y = predicted_prob,color=data_win), pch = 2)+
+  geom_vline(xintercept = cutoff, linetype = "dashed") +
+  scale_color_manual(values = c("blue", "green"), labels = c("Control", "Treatment")) +
+  labs(x = "income", y = "RB", color = "Group", title = "RDD Plot") +
+  theme_minimal()
+
+```
+```{r}
+#non-parametric B-splines
+library(splines)
+
+model <- glm(RB ~ data_win + bs(income, df = 4)+edu+household+knowledge, data = data, family = binomial())
+summary(model)
+```
+```{r}
+#Polynomial with order 2
+model <- glm(RB ~ data_win+poly(income, degree = 2)+edu+household+knowledge, data = data, family = binomial())
+summary(model)
+```
+```{r}
+# Predict the probabilities using the logistic regression model
+data$predicted_prob <- predict(model, type = "response")
+
+# Create a new dataframe for plotting
+data$data_win <- as.factor(data$data_win)
+plot_data <- data
+
+# Plot the observed outcomes and predicted probabilities
+ggplot(plot_data, aes(x = income)) +
+  geom_point(aes(y = RB, color = data_win), alpha = 0.5) +
+   geom_point(aes(y = predicted_prob,color=data_win), pch = 2)+
+  geom_vline(xintercept = cutoff, linetype = "dashed") +
+  scale_color_manual(values = c("blue", "green"), labels = c("Control", "Treatment")) +
+  labs(x = "income", y = "RB", color = "Group", title = "RDD Plot") +
+  theme_minimal()
+
+```
+```{r}
+#LATE
+trt <- subset(data, income > 6450)
+con <- subset(data, income<6450)
+mean(trt$predicted_prob)-mean(con$predicted_prob)
+```
+
+
+
+```{r}
+#Robustness check
+
+#Smaller bandwidth
+sub_small <- subset(data, income >= 5800 & income <= 6800)
+sum(sub_small$income<6450)
+```
+```{r}
+data_full <- read.csv("D:/Causal modeling/data presentation/data_CHFS2019_V2.csv",header = TRUE)
+
+#Lager bandwidth
+sub_big <- subset(data_full, income>=5100& income<= 7400)
+model <- glm(RB ~ data_win+poly(income, degree = 2)+edu+household+knowledge, data = sub_small, family = binomial())
+summary(model)
+```
+
+```{r}
+sub_big$data_win <- ifelse(sub_big$income > 6450, 1, 0)
+model <- glm(RB ~ data_win+poly(income, degree = 2)+edu+household+knowledge, data = sub_big, family = binomial())
+summary(model)
+```
+```{r}
+#More Lager bandwidth
+sub_big2 <- subset(data_full, income>=4600& income<= 7900)
+sub_big2$data_win <- ifelse(sub_big2$income > 6450, 1, 0)
+model <- glm(RB ~ data_win+poly(income, degree = 2)+edu+household+knowledge, data = sub_big2, family = binomial())
+summary(model)
+```
+
+
+```{r,message=FALSE,warning=FALSE}
+#Implement PC DAG
+if (!requireNamespace("BiocManager", quietly = TRUE)){
+    install.packages("BiocManager")}
+    
+if (!requireNamespace("Rgraphviz", quietly = TRUE))
+    BiocManager::install("Rgraphviz",update=FALSE)
+library("Rgraphviz")
+
+if (!requireNamespace("RBGL", quietly = TRUE)){
+    BiocManager::install("RBGL",update=FALSE)}
+library("RBGL")
+
+if (!requireNamespace("abind", quietly = TRUE)){
+    install.packages("abind",update=FALSE)}
+library("abind")
+
+if (!requireNamespace("corpcor", quietly = TRUE)){
+    install.packages("corpcor",update=FALSE)}
+library("corpcor")
+
+if (!requireNamespace("sfsmisc", quietly = TRUE)){
+    install.packages("sfsmisc",update=FALSE)}
+library("sfsmisc")
+
+if (!requireNamespace("robustbase", quietly = TRUE)){
+    install.packages("robustbase",update=FALSE)}    
+library("robustbase")
+
+if (!requireNamespace("pcalg", quietly = TRUE)){
+    install.packages("pcalg",update=FALSE)}
+library("pcalg")
+
+if (!requireNamespace("graph", quietly = TRUE)){
+    install.packages("graph",update=FALSE)}
+library("graph")
+
+## Boolean checking whether Rgraphviz loaded
+## (So people can continue in case not!)
+
+plotcpdag <- "Rgraphviz" %in% print(.packages(lib.loc = .libPaths()[1])) 
+```
+
+```{r}
+##### Using the PC Algorithm to alternative bandwidth 2:
+data_full <- read.csv("D:/Causal modeling/data presentation/data_CHFS2019_V2.csv",header = TRUE)
+sub_big2 <- subset(data_full, income>=4600& income<= 7900)
+dag <- data.frame(RB=sub_big2$RB,income=sub_big2$income,edu=sub_big2$edu,knowledge=sub_big2$knowledge,household=sub_big2$household)
+n <- nrow(dag)
+p <- ncol(dag)
+indepTest <- gaussCItest
+suffStat <- list(C=cor(dag), n = n)
+
+## estimate CPDAG
+alpha <- 0.1
+pc.fit <- pc(suffStat, indepTest, p = p, alpha = alpha, verbose = TRUE)
+showAmat(pc.fit)
+
+if (plotcpdag) {
+  plot(pc.fit, main = "Estimated CPDAG",labels=c("RB","income","edu","knowledge","household"))
+  ## Note undirected edges are represented here as  <->
+}
+```
+
+```{r}
+##### Using the PC Algorithm to original alternative bandwidth:
+data <- read.csv("D:/Causal modeling/data presentation/data_CHFS2019_V3.csv",header = TRUE)
+dag <- data.frame(RB=data$RB,income=data$income,edu=data$edu,knowledge=data$knowledge,household=data$household)
+n <- nrow(dag)
+p <- ncol(dag)
+indepTest <- gaussCItest
+suffStat <- list(C=cor(dag), n = n)
+
+## estimate CPDAG
+alpha <- 0.1
+pc.fit <- pc(suffStat, indepTest, p = p, alpha = alpha, verbose = TRUE)
+showAmat(pc.fit)
+
+if (plotcpdag) {
+  plot(pc.fit, main = "Estimated CPDAG",labels=c("RB","income","edu","knowledge","household"))
+  ## Note undirected edges are represented here as  <->
+}
+```
+
+```{r}
+dag <- data.frame(RB=sub_big$RB,income=sub_big$income,edu=sub_big$edu,knowledge=sub_big$knowledge,household=sub_big$household)
+n <- nrow(dag)
+p <- ncol(dag)
+indepTest <- gaussCItest
+suffStat <- list(C=cor(dag), n = n)
+
+## estimate CPDAG
+alpha <- 0.1
+pc.fit <- pc(suffStat, indepTest, p = p, alpha = alpha, verbose = TRUE)
+showAmat(pc.fit)
+
+if (plotcpdag) {
+  plot(pc.fit, main = "Estimated CPDAG",labels=c("RB","income","edu","knowledge","household"))
+  ## Note undirected edges are represented here as  <->
+}
+```
+
+

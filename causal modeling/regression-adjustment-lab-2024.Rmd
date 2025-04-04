@@ -1,0 +1,209 @@
+---
+title: |
+      | CS&SS/STAT 566 - Causal Modelling
+      | \Large Quiz Section 4
+      | Regression Adjustment
+output: pdf_document
+---
+# Input
+Data Frame with columns Y, Trt, Z
+\begin{itemize}
+\item Y is the outcome
+\item Trt is a binary indicator with 1 for T and 0 for C
+\item Z is a baseline covariate
+\end{itemize}
+
+
+```{r}
+rm(list=ls())
+# Load the data file directly from the website
+data <- read.csv("https://sites.stat.washington.edu/people/tsr/s566/regression-adjustment-data.csv")
+
+
+Y <- data$Y
+Trt <- data$Trt
+Z <- data$Z
+```
+
+ Y.c   vector with observed responses in control\
+ Y.t   vector with observed responses in treatment\
+ Z.c  vector with covariates observed in control\
+ Z.t  vector with covariates observed in treatment\
+
+```{r}
+Y.c <- Y[Trt==0]
+Y.t <- Y[Trt==1]
+Z.c <- Z[Trt==0]
+Z.t <- Z[Trt==1]
+
+k <- sum(Trt)    # Treatment group size
+m <- sum(1-Trt)  # Control group size
+```
+
+
+# Unadjusted inference 
+```{r}
+mean(Y.t)
+mean(Y.c)
+
+ATE.unadj<-mean(Y.t)-mean(Y.c)
+ATE.unadj
+
+
+## Variance of Estimate
+var.ctrl <- var(Y.c)
+var.trt <- var(Y.t)
+
+hat.var.hat.ace <- var.trt/k + var.ctrl/m
+
+##95% asymptotic confidence interval:
+
+ATE.unadj - 1.96*sqrt(hat.var.hat.ace)
+ATE.unadj + 1.96*sqrt(hat.var.hat.ace)
+
+unadj <- t.test(Y.t,Y.c)
+unadj$p.value
+
+sd(Y.t)
+sd(Y.c)
+```
+# Inference adjusting for baseline covariates
+
+
+## 1 First Approach: two separate regressions:
+```{r}
+reg.c <- lm(Y.c~Z.c)
+reg.t <- lm(Y.t~Z.t)
+
+
+## Adjusted means:
+
+## From control
+ybar.reg.c <- mean(Y.c) + (reg.c$coef[2])*(mean(Z)-mean(Z.c))
+names(ybar.reg.c) <- "adj.Y.c"
+ybar.reg.c
+
+## From treatment
+ybar.reg.t <- mean(Y.t) + (reg.t$coef[2])*(mean(Z)-mean(Z.t))
+names(ybar.reg.t) <- "adj.Y.t"
+ybar.reg.t
+
+# adjusted ATE via two regressions
+
+ate.adj <- ybar.reg.t - ybar.reg.c
+names(ate.adj) <- "ate.adj.2reg"
+ate.adj
+```
+
+## 2 Second Approach: combined in a single regression
+
+```{r}
+Trt <- c(rep(0,m),rep(1,k))
+Y <- c(Y.c,Y.t)
+Inter <- Trt*(Z-mean(Z)) 
+
+combined.reg <- lm(Y~Trt + Z + Inter)
+summary(combined.reg)
+```
+\textbf{Question:} What's the difference if we do this? Why?
+```{r}
+lm(Y~Trt + Z + Trt*Z)
+```
+
+### Coefficient on Treatment from this regression
+```{r}
+# Note this is the same as the adjusted ATE via two regressions
+(combined.reg$coeff)["Trt"]
+```
+
+The second approach has the advantage that it makes inference simpler to carry out in R.\
+\textbf{Question:} Why is the above statement true?
+
+### Inference
+We compute p-values first assuming homoscedasticity, and then do this again via robust method that allows for heteroscedasticity
+
+#### A. Inference, assuming homoscedasticity
+
+```{r}
+(summary(combined.reg)$coeff)["Trt",]
+
+tmp.homosc <- (summary(combined.reg)$coeff)["Trt",]
+
+#95% Confidence Interval
+homosc.int <- c(tmp.homosc[1]-1.96*tmp.homosc[2],tmp.homosc[1]+1.96*tmp.homosc[2])
+names(homosc.int) <- c("lower","upper")
+homosc.int
+```
+
+#### B. Inference, allowing for heteroskedasticity\
+\
+\textbf{Question:} What do you expect the difference to be (i.e. are the confidence intervals tighter/wider/the same), and why?
+
+```{r}
+## uses Huber-White Heteroskedastic Consistent Variance Estimate, aka "Sandwich Formula")
+if (!requireNamespace("sandwich", quietly = TRUE))
+    install.packages("sandwich")
+library(sandwich)
+if (!requireNamespace("lmtest", quietly = TRUE))
+    install.packages("lmtest")
+library(lmtest)
+
+
+coeftest(combined.reg, vcov = vcovHC(combined.reg))["Trt",]
+tmp.heterosc <- coeftest(combined.reg, vcov = vcovHC(combined.reg))["Trt",]
+
+heterosc.int <- c(tmp.heterosc[1]-1.96*tmp.heterosc[2],tmp.heterosc[1]+1.96*tmp.heterosc[2])
+names(heterosc.int) <- c("lower","upper")
+heterosc.int
+```
+Compare this to the unadjusted confidence interval above!
+```{r}
+ate.adj
+```
+
+
+
+## 3  Third approach: Oaxaca-Blinder (Guo & Basse,2020)
+```{r}
+data <- data.frame(cbind(Y,Trt,Z))
+mu.c <- lm(Y~Z,subset(data,Trt==0))
+mu.t <- lm(Y~Z,subset(data,Trt==1))
+```
+(So far this same as the first approach)
+
+### Using the fitted values to obtain the estimate of the ATE
+
+First, we try directly using expression in lecture notes.
+```{r}
+# Predicted potential outcomes 
+yhat.t = c(Y[Trt==1],predict(mu.t,data)[Trt==0])
+yhat.c = c(predict(mu.c,data)[Trt==1],Y[Trt==0])
+
+mean(yhat.t)-mean(yhat.c)
+```
+
+Now here is a faster way to do this in one line of R:
+```{r}
+tau.hat <- mean(predict(mu.t,data)-predict(mu.c,data))
+tau.hat
+```
+Note that this uses the fact that the model is prediction unbiased so that the mean of the fitted values for \texttt{Trt==x = mean(Y[Trt==x])}
+```{r}
+mean(predict(mu.c,data)[Trt==0])
+mean(Y[Trt==0])
+mean(predict(mu.t,data)[Trt==1])
+mean(Y[Trt==1])
+```
+
+### Inference (simple trick due to Guo and Basse)
+```{r}
+tau.hat + t.test(residuals(mu.t),residuals(mu.c))$conf.int
+```
+This uses a slightly different variance estimate, hence the interval differs from that in \texttt{heterosc.int}
+```{r}
+heterosc.int
+homosc.int
+```
+
+
+

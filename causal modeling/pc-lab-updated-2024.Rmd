@@ -1,0 +1,256 @@
+---
+title: |
+      | CS&SS/STAT 566 - Causal Modelling
+      | \Large Quiz Section 6
+      | PC Algorithm
+output: pdf_document
+---
+# Preamble: Package Installation
+To begin, we first need to install and load the requisite packages.
+```{r,include=FALSE}
+rm(list=ls())
+### Load required packages
+##  Separate commands because some are large and the
+##  download command may be slow or fail.
+##  (However, if you re-run the commands it will not reload
+##   packages that are already there.)
+
+if (!requireNamespace("BiocManager", quietly = TRUE)){
+    install.packages("BiocManager")}
+    
+if (!requireNamespace("Rgraphviz", quietly = TRUE))
+    BiocManager::install("Rgraphviz",update=FALSE)
+library("Rgraphviz")
+
+if (!requireNamespace("RBGL", quietly = TRUE)){
+    BiocManager::install("RBGL",update=FALSE)}
+library("RBGL")
+
+if (!requireNamespace("abind", quietly = TRUE)){
+    install.packages("abind",update=FALSE)}
+library("abind")
+
+if (!requireNamespace("corpcor", quietly = TRUE)){
+    install.packages("corpcor",update=FALSE)}
+library("corpcor")
+
+if (!requireNamespace("sfsmisc", quietly = TRUE)){
+    install.packages("sfsmisc",update=FALSE)}
+library("sfsmisc")
+
+if (!requireNamespace("robustbase", quietly = TRUE)){
+    install.packages("robustbase",update=FALSE)}    
+library("robustbase")
+
+if (!requireNamespace("pcalg", quietly = TRUE)){
+    install.packages("pcalg",update=FALSE)}
+library("pcalg")
+
+if (!requireNamespace("graph", quietly = TRUE)){
+    install.packages("graph",update=FALSE)}
+library("graph")
+
+```
+
+```{r}
+## Boolean checking whether Rgraphviz loaded
+plotcpdag <- "Rgraphviz" %in% print(.packages(lib.loc = .libPaths()[1])) 
+```
+# Dataset 1
+Let's look at this dataset and try to get the CPDAG, first manually to demonstrate how the PC algorithm works, then at once to demonstrate the \texttt{pcalg} package.
+```{r}
+# Load data and some utility functions (showAmat; showEdgeList)
+# (Thanks to Markus Kalisch!)
+source("https://www.stat.washington.edu/tsr/s566/labs/pc-output-utilities.r")
+data <- read.table("https://www.stat.washington.edu/tsr/s566/labs/lab4DAG1.dat")
+attr(data,"names")
+x <- data$x
+y <- data$y
+z <- data$z
+w <- data$w
+
+names <- attr(data,"names")
+```
+We can run some correlation tests
+```{r}
+# Correlation matrix
+cor(data)
+# Graphical display
+pairs(data, lower.panel = NULL)
+```
+Another way is to look at regressions. We'd have to look at a lot of regressions though, but let's power through for this first DAG
+```{r}
+# Check marginal independences
+
+
+
+
+
+
+
+
+# Check conditional independences, S = 1
+
+
+
+
+
+
+
+
+# Check conditional independences, S = 2
+
+
+
+
+
+
+
+
+```
+What do you see? Tedious, isn't it?
+
+So instead of doing that, let's run it all at once!
+```{r}
+##### Using the PC Algorithm to do the job for us:
+data <- read.csv("C:/Users/26862/Desktop/data_RS.csv",header = TRUE)
+n <- nrow(data)
+p <- ncol(data)
+indepTest <- gaussCItest
+suffStat <- list(C=cor(data), n = n)
+
+## estimate CPDAG
+alpha <- 0.05
+pc.fit <- pc(suffStat, indepTest, p = p, alpha = alpha, verbose = TRUE)
+showAmat(pc.fit)
+
+if (plotcpdag) {
+  plot(pc.fit, main = "Estimated CPDAG",labels=c("RS","age","knowledge","edu","income"))
+  ## Note undirected edges are represented here as  <->
+}
+```
+
+Read through the output - can you see what it has done?
+
+# Dataset 2
+```{r}
+data <- read.table("https://www.stat.washington.edu/tsr/s566/labs/lab4DAG2.dat")
+attr(data,"names")
+
+x <- data$x
+y <- data$y
+z <- data$z
+w <- data$w
+```
+
+Let's run some correlation tests
+```{r}
+# Correlation matrix
+cor(data)
+# Graphical display
+pairs(data, lower.panel = NULL)
+```
+
+Now check for independence!
+```{r}
+
+
+
+
+
+
+```
+... or if you believe the PC Algorithm at this point, get it to do the job for you
+```{r}
+##### Using the PC Algorithm
+n <- nrow(data)
+p <- ncol(data)
+indepTest <- gaussCItest
+suffStat <- list(C=cor(data), n = n)
+## estimate CPDAG
+alpha <- 0.05
+pc.fit <- pc(suffStat, indepTest, p = p, alpha = alpha, verbose = TRUE)
+showAmat(pc.fit)
+showEdgeList(pc.fit,names)
+if (plotcpdag) {
+  plot(pc.fit, main = "Estimated CPDAG",labels=c("x","y","z","w"))
+  ## Note undirected edges are represented here as  <->
+}
+```
+
+# Dataset 3
+Ok, last one:
+```{r}
+data <- read.table("https://www.stat.washington.edu/tsr/s566/labs/lab4DAG3.dat")
+attr(data,"names")
+
+x <- data$x
+y <- data$y
+z <- data$z
+w <- data$w
+
+names <- attr(data,"names")
+```
+
+Maybe look at some independences
+```{r}
+# Some linear regressions again
+summary(lm(z~w, data))$coef
+
+summary(lm(z~w + x, data))$coef
+summary(lm(z~w + y, data))$coef
+```
+
+Good enough, now for the PC Algorithm
+```{r}
+##### Using the PC Algorithm
+n <- nrow(data)
+p <- ncol(data)
+indepTest <- gaussCItest
+suffStat <- list(C=cor(data), n = n)
+
+## estimate CPDAG
+alpha <- 0.05
+pc.fit <- pc(suffStat, indepTest, p = p, alpha = alpha, verbose = TRUE)
+showAmat(pc.fit)
+showEdgeList(pc.fit,names)
+if (plotcpdag) {
+  plot(pc.fit, main = "Estimated CPDAG",labels=c("x","y","z","w"))
+}
+```
+
+
+```{r}
+data2 <- read.csv("C:/Users/26862/Desktop/data_RB.csv",header = TRUE)
+## define sufficient statistics
+suffStat <- list(dm = data2, nlev = c(2,2,2,3), adaptDF = FALSE)
+V <- colnames(data2)
+## estimate CPDAG
+pc.D <- pc(suffStat,
+           ## independence test: G^2 statistic
+           indepTest = disCItest, alpha = 0.01, labels = V, verbose = TRUE)
+if (require(Rgraphviz)) {
+  ## show estimated CPDAG
+  plot(pc.D, main = "Estimated CPDAG",labels=c("RB","risk","household","city"))
+}
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
