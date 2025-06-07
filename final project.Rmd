@@ -1,0 +1,458 @@
+---
+title: "529 final project"
+author: "ZiXia Huang"
+date: "2025-05-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r,message=FALSE,warning=FALSE}
+library(dplyr)
+library(purrr)
+library(lubridate)
+library(survey)
+```
+
+
+```{r}
+# Load all data files(change to your path to local dictionary)
+hms_2021 <- read.csv("D:/survey sample/HMS_2021-2022_PUBLIC_instchars.csv",header = TRUE)
+hms_2022 <- read.csv("D:/survey sample/HMS_2022-2023_PUBLIC_instchars.csv",header = TRUE)
+hms_2023 <- read.csv("D:/survey sample/HMS_2023-2024_PUBLIC_instchars.csv",header = TRUE)
+```
+
+```{r}
+# Select variables needed
+hms_did_2021 <- hms_2021 %>%
+  select(startdate, schoolnum, nrweight, 
+         deprawsc, anx_score, dep_any, anx_any,
+         ther_any, meds_any, tx_any,sex_birth)
+
+hms_did_2023 <- hms_2023 %>%
+  select(StartDate, schoolnum, nrweight, 
+         deprawsc, anx_score, dep_any, anx_any,
+         ther_any, meds_any, tx_any,sex_birth)
+
+hms_did_2023 <- hms_did_2023 %>%
+  rename(startdate = StartDate)
+
+hms_did <- rbind(hms_did_2021,hms_did_2023)
+```
+
+
+```{r}
+#detect missing values
+# Basic summary of missing values
+missing_summary <- sapply(hms_did, function(x) sum(is.na(x)))
+missing_percent <- round(missing_summary / nrow(hms_did) * 100, 2)
+
+# Combine into a data frame
+missing_table <- data.frame(
+  Variable = names(missing_summary),
+  Missing_Count = missing_summary,
+  Missing_Percent = missing_percent
+)
+
+# View or sort it
+missing_table <- missing_table[order(-missing_table$Missing_Count), ]
+print(missing_table)
+
+```
+
+
+```{r}
+# Clean
+
+hms_did_small <- hms_did %>%
+  mutate(across(-1, ~ as.numeric(.)))
+
+
+hms_did_small <- na.omit(hms_did_small)
+```
+```{r}
+############################################ explore data ##########################################################
+sum(hms_did_small$sex_birth == 2)
+sum(hms_did_small$sex_birth == 2 & hms_did_small$deprawsc >= 0 & hms_did_small$deprawsc <= 10, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 2 & hms_did_small$deprawsc >10 & hms_did_small$deprawsc <= 20, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 2 & hms_did_small$deprawsc >20, na.rm = TRUE)
+```
+```{r}
+sum(hms_did_small$sex_birth == 1)
+sum(hms_did_small$sex_birth == 1 & hms_did_small$deprawsc >= 0 & hms_did_small$deprawsc <= 10, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 1 & hms_did_small$deprawsc >10 & hms_did_small$deprawsc <= 20, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 1 & hms_did_small$deprawsc >20, na.rm = TRUE)
+```
+```{r}
+sum(hms_did_small$sex_birth == 2)
+sum(hms_did_small$sex_birth == 2 & hms_did_small$anx_score >= 0 & hms_did_small$anx_score <= 10, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 2 & hms_did_small$anx_score >10 & hms_did_small$anx_score <= 20, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 2 & hms_did_small$anx_score >20, na.rm = TRUE)
+```
+```{r}
+sum(hms_did_small$sex_birth == 1)
+sum(hms_did_small$sex_birth == 1 & hms_did_small$anx_score >= 0 & hms_did_small$anx_score <= 10, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 1 & hms_did_small$anx_score >10 & hms_did_small$anx_score <= 20, na.rm = TRUE)
+sum(hms_did_small$sex_birth == 1 & hms_did_small$anx_score >20, na.rm = TRUE)
+```
+
+```{r}
+
+########################################### analysis part ##########################################################
+#Create Period
+hms_did_small <- hms_did_small %>%
+  mutate(
+    # Convert to uniform datetime format by checking the pattern
+    startdate_parsed = case_when(
+      grepl("/", startdate) ~ ymd_hm(startdate),          # YYYY/MM/DD HH:MM
+      grepl("-", startdate) ~ ymd_hms(startdate),         # YYYY-MM-DD HH:MM:SS
+      TRUE ~ NA_POSIXct_                                   # fallback for unexpected format
+    ),
+    
+    # Extract survey year
+    survey_wave = year(startdate_parsed),
+
+    # Define period based on year
+    period = case_when(
+      survey_wave %in% c(2021,2022) ~ "during",
+      survey_wave %in% c(2023, 2024) ~ "after"
+    ),
+    period = factor(period, levels = c("during", "after"))
+  )
+
+```
+
+```{r}
+table(hms_did_small$period)
+```
+
+```{r}
+# Create groups
+hms_did_small <- hms_did_small %>%
+  mutate(
+    diagnostic_group = case_when(
+      dep_any == 1 & anx_any == 0 ~ "Depression only",
+      dep_any == 0 & anx_any == 1 ~ "Anxiety only",
+      dep_any == 1 & anx_any == 1 ~ "Comorbid",
+      dep_any == 0 & anx_any == 0 ~ "Neither"
+    ),
+    diagnostic_group = factor(diagnostic_group,
+                              levels = c("Neither", "Depression only", "Anxiety only", "Comorbid"))
+  )
+```
+
+```{r}
+# Create survey design object
+hms_design <- svydesign(
+  ids = ~1,
+  weights = ~nrweight,
+  data = hms_did_small
+)
+```
+
+```{r}
+# did model with PHQ9 depression
+model_dep <- svyglm(deprawsc ~ diagnostic_group * period, design = hms_design)
+summary(model_dep)
+
+```
+
+```{r}
+#did model with GAD-7 anxiety
+model_anx <- svyglm(anx_score ~ diagnostic_group * period, design = hms_design)
+summary(model_anx)
+```
+```{r}
+model_main_anx <- svyglm(anx_score ~ diagnostic_group + period, design = hms_design)
+summary(model_main_anx)
+```
+
+
+```{r}
+compute_table_by_year <- function(df, year) {
+  df_year <- df %>%
+    filter(survey_wave == year) %>%
+    mutate(
+      group_dep_only = as.numeric(diagnostic_group == "Depression only"),
+      group_anx_only = as.numeric(diagnostic_group == "Anxiety only"),
+      group_comorbid = as.numeric(diagnostic_group == "Comorbid"),
+      group_neither = as.numeric(diagnostic_group == "Neither")
+    )
+
+  design_year <- svydesign(ids = ~1, weights = ~nrweight, data = df_year)
+
+  prev <- svymean(~group_dep_only + group_anx_only + group_comorbid + group_neither,
+                  design_year, na.rm = TRUE)
+
+  prevalence_df <- as.data.frame(prev)
+  prevalence_df$diagnostic_group <- rownames(prevalence_df)
+
+  prevalence_df <- prevalence_df %>%
+    select(diagnostic_group, Prevalence = mean, SE = SE) %>%
+    mutate(
+      diagnostic_group = gsub("group_", "", diagnostic_group),
+      CI_Lower = Prevalence - 1.96 * SE,
+      CI_Upper = Prevalence + 1.96 * SE,
+      Year = year  # ADD YEAR here
+    )
+
+  return(prevalence_df)
+}
+
+# Run for all years and combine into one data frame
+years <- c(2021, 2022, 2023, 2024)
+yearly_tables <- purrr::map_dfr(years, ~ compute_table_by_year(hms_did_small, .x))
+
+```
+
+```{r}
+# Define helper function
+get_treatment_by_year <- function(df, year) {
+  df_year <- df %>%
+    filter(survey_wave == year)
+
+  # Create survey design for that year
+  design_year <- svydesign(ids = ~1, weights = ~nrweight, data = df_year)
+
+  # Function to get one treatment type
+  get_svyby_with_ci <- function(varname, label) {
+    svyby(as.formula(paste0("~", varname)), ~diagnostic_group, design_year, svymean,
+          keep.var = TRUE, na.rm = TRUE) %>%
+      rename(!!label := !!sym(varname), SE = se) %>%
+      mutate(
+        CI_Lower = !!sym(label) - 1.96 * SE,
+        CI_Upper = !!sym(label) + 1.96 * SE,
+        Year = year
+      ) %>%
+      select(diagnostic_group, Year, !!label, SE, CI_Lower, CI_Upper)
+  }
+
+  # Compute all treatment types
+  therapy    <- get_svyby_with_ci("ther_any", "Therapy")
+  medication <- get_svyby_with_ci("meds_any", "Medication")
+  combined   <- get_svyby_with_ci("tx_any",   "Combined")
+
+  # Merge all into one table
+  therapy %>%
+    left_join(medication, by = c("diagnostic_group", "Year"), suffix = c("_therapy", "_meds")) %>%
+    left_join(combined,  by = c("diagnostic_group", "Year"), suffix = c("", "_combined"))
+}
+
+# Apply across years
+years <- c(2021, 2022, 2023, 2024)
+
+treatment_by_year <- map_dfr(years, ~ get_treatment_by_year(hms_did_small, .x))
+
+# View final result
+print(treatment_by_year)
+
+```
+
+
+
+
+```{r}
+library(ggplot2)
+# Create the plot with estimates and SEs
+plot_prevalence <- ggplot(yearly_tables, aes(x = Year, y = Prevalence, color = diagnostic_group)) +
+  geom_point(position = position_dodge(width = 0.6), size = 1) +
+  geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper),
+                position = position_dodge(width = 0.6),
+                width = 0.2) +
+  # Add prevalence estimates as text
+  geom_text(aes(label = paste0(round(Prevalence * 100, 1), "%")),
+            position = position_dodge(width = 0.2),
+            vjust = -1.5, size = 3, fontface = "bold") +
+  labs(
+    title = "Prevalence by Diagnostic Group and Year",
+    x = "Year", y = "Estimated Prevalence",
+    color = "Diagnostic Group"
+  ) +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0, 0.7)) +
+  theme_minimal(base_size = 15)
+
+# Show the plot
+print(plot_prevalence)
+
+
+
+```
+```{r}
+# Therapy data
+therapy_plot_data <- treatment_by_year %>%
+  select(diagnostic_group, Year, Rate = Therapy, SE = SE_therapy,
+         CI_Lower = CI_Lower_therapy, CI_Upper = CI_Upper_therapy) %>%
+  mutate(Treatment_Type = "Therapy")
+
+# Medication data
+meds_plot_data <- treatment_by_year %>%
+  select(diagnostic_group, Year, Rate = Medication, SE = SE_meds,
+         CI_Lower = CI_Lower_meds, CI_Upper = CI_Upper_meds) %>%
+  mutate(Treatment_Type = "Medication")
+
+# Combined data
+combined_plot_data <- treatment_by_year %>%
+  select(diagnostic_group, Year, Rate = Combined, SE,
+         CI_Lower, CI_Upper) %>%
+  mutate(Treatment_Type = "Combined")
+
+# Combine into list for easy looping (optional)
+plot_data_list <- list(
+  Therapy = therapy_plot_data,
+  Medication = meds_plot_data,
+  Combined = combined_plot_data
+)
+```
+
+```{r}
+plot_treatment_type <- function(df, title) {
+  ggplot(df, aes(x = Year, y = Rate, color = diagnostic_group)) +
+    geom_point(position = position_dodge(width = 0.6), size = 2) +
+    geom_errorbar(aes(ymin = CI_Lower, ymax = CI_Upper),
+                  position = position_dodge(width = 0.6), width = 0.2) +
+    
+    # Prevalence % labels shifted further above the point and bar
+    geom_text(aes(label = paste0(round(Rate * 100, 1), "%")),
+              position = position_dodge(width = 0.6),
+              vjust = -3, size = 3, fontface = "bold", show.legend = FALSE) +
+
+    labs(
+      title = paste0(title, " Treatment Usage by Group and Year"),
+      x = "Year", y = "Usage Rate", color = "Diagnostic Group"
+    ) +
+    scale_y_continuous(labels = scales::percent_format(accuracy = 1), limits = c(0.1, 0.75)) +
+    theme_minimal(base_size = 15)
+}
+```
+
+```{r}
+# Therapy plot
+plot_therapy <- plot_treatment_type(therapy_plot_data, "Therapy")
+# Medication plot
+plot_medication <- plot_treatment_type(meds_plot_data, "Medication")
+# Combined plot
+plot_combined <- plot_treatment_type(combined_plot_data, "Combined")
+
+# Show plots
+print(plot_therapy)
+print(plot_medication)
+print(plot_combined)
+```
+
+```{r}
+################################Compare adjust by design weight or not##############################################
+library(purrr)
+
+# Function to compare unweighted vs weighted prevalence for a given year
+compare_prevalence_by_year <- function(df, year) {
+  df_year <- df %>%
+    filter(survey_wave == year) %>%
+    mutate(
+      group_dep_only = diagnostic_group == "Depression only",
+      group_anx_only = diagnostic_group == "Anxiety only",
+      group_comorbid = diagnostic_group == "Comorbid",
+      group_neither = diagnostic_group == "Neither"
+    )
+
+  # --- Unweighted ---
+  unweighted <- tibble(
+    Group = c("Depression only", "Anxiety only", "Comorbid", "Neither"),
+    Est = c(
+      mean(df_year$group_dep_only, na.rm = TRUE),
+      mean(df_year$group_anx_only, na.rm = TRUE),
+      mean(df_year$group_comorbid, na.rm = TRUE),
+      mean(df_year$group_neither, na.rm = TRUE)
+    ),
+    SE = c(
+      sd(df_year$group_dep_only, na.rm = TRUE) / sqrt(sum(!is.na(df_year$group_dep_only))),
+      sd(df_year$group_anx_only, na.rm = TRUE) / sqrt(sum(!is.na(df_year$group_anx_only))),
+      sd(df_year$group_comorbid, na.rm = TRUE) / sqrt(sum(!is.na(df_year$group_comorbid))),
+      sd(df_year$group_neither, na.rm = TRUE) / sqrt(sum(!is.na(df_year$group_neither)))
+    ),
+    Type = "Unweighted",
+    Year = year
+  )
+
+  # --- Weighted ---
+  df_year <- df_year %>%
+    mutate(
+      group_dep_only = as.numeric(group_dep_only),
+      group_anx_only = as.numeric(group_anx_only),
+      group_comorbid = as.numeric(group_comorbid),
+      group_neither = as.numeric(group_neither)
+    )
+
+  design_year <- svydesign(ids = ~1, weights = ~nrweight, data = df_year)
+  design_year <- update(design_year, group_dep_only, group_anx_only, group_comorbid, group_neither)
+
+  weighted <- svymean(~group_dep_only + group_anx_only + group_comorbid + group_neither,
+                      design = design_year, na.rm = TRUE) %>%
+    as.data.frame() %>%
+    mutate(
+      Group = gsub("group_", "", rownames(.)),
+      Type = "Weighted",
+      Year = year
+    ) %>%
+    rename(Est = mean, SE = SE) %>%
+    select(Group, Est, SE, Type, Year)
+
+  # Combine and return
+  bind_rows(unweighted, weighted)
+}
+
+# Years to compare
+years <- c(2021, 2022, 2023, 2024)
+
+# Run for all years
+prevalence_comparison_all <- map_dfr(years, ~ compare_prevalence_by_year(hms_did_small, .x))
+
+# View the result
+print(prevalence_comparison_all)
+
+write.csv(prevalence_comparison_all, "D:/survey sample/compare.csv", row.names = FALSE)
+```
+```{r}
+# Explore the weights distribution
+hist(hms_did_small$nrweight)
+```
+
+
+```{r}
+############################################## Sensitivity Analysis#################################################
+table(hms_did_small$nrweight > 15)
+```
+```{r}
+hms_did_small$nrweight_trimmed <- pmin(hms_did_small$nrweight, 15)
+hms_design_trimmed <- svydesign(ids = ~1, weights = ~nrweight_trimmed, data = hms_did_small)
+```
+
+```{r}
+
+```
+```{r}
+# did model with PHQ9 depression
+model_dep_trimmed <- svyglm(deprawsc ~ diagnostic_group * period, design = hms_design_trimmed)
+summary(model_dep_trimmed)
+```
+```{r}
+#did model with GAD-7 anxiety
+model_anx_trimmed <- svyglm(anx_score ~ diagnostic_group * period, design = hms_design_trimmed)
+summary(model_anx_trimmed)
+```
+```{r}
+model_main_anx_trimmed <- svyglm(anx_score ~ diagnostic_group + period, design = hms_design_trimmed)
+summary(model_main_anx_trimmed)
+```
+```{r}
+hist(hms_did_small$anx_score)
+```
+
+
+
+
+
+
+
+
